@@ -1,0 +1,6 @@
+
+main 
+main.o
+*.db
+zig-out
+.zig-cache
