@@ -6,17 +6,17 @@ for now it's only supports sqlite3 but in future maybe other dbs.
 ## Usage
 Fow now there is 3 ways to interact with Zekrom:
 
-*Migrate to a latest version:*
+**Migrate to a latest version:**
 ```bash
 $ zekrom migrate
 ```
 
-*Migrate to a specific version:*
+**Migrate to a specific version:**
 ```bash
 $ zekrom migrate 1
 ```
 
-*Rollback to a specific version:*
+**Rollback to a specific version:**
 ```bash
 $ zekrom drop_to 2
 ```
