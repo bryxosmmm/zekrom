@@ -13,7 +13,7 @@ $ zekrom migrate
 
 **Migrate to a specific version:**
 ```bash
-$ zekrom migrate 1
+$ zekrom migrate_to 1
 ```
 
 **Rollback to a specific version:**
