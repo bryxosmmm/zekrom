@@ -11,9 +11,9 @@ const DISTRUCT: []const u8 = "-- :drop";
 pub const Command = enum {
     migrate,
     show_d,
+    drop_to,
     migrate_to,
     unknown,
-    drop,
 };
 
 pub const Statements = struct {

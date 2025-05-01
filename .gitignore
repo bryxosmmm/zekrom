@@ -2,5 +2,6 @@
 main 
 main.o
 *.db
+*.sql
 zig-out
 .zig-cache

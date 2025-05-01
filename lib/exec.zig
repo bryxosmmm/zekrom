@@ -27,7 +27,7 @@ pub fn drop_table(conn: sql.sqlite3, allocator: mem.Allocator, table_stmt: *Stat
     try sql.exec(conn, sql_str);
 }
 
-pub fn perform(comptime cmd: Command, allocator: mem.Allocator, dir: fs.Dir, version: usize) !void {
+pub fn perform_migrate_to(allocator: mem.Allocator, dir: fs.Dir, version: usize) !void {
     const db = try sql.init("data.db");
     defer sql.deinit(db) catch {
         exit(1);
@@ -43,15 +43,13 @@ pub fn perform(comptime cmd: Command, allocator: mem.Allocator, dir: fs.Dir, ver
 
     try shared.loadStatements(allocator, &stash, dir);
 
-    const f = comptime switch (cmd) {
-        .migrate_to => migrate_table,
-        .drop => drop_table,
-        else => fn (_: anytype, _: anytype, _: anytype) void{},
-    };
     for (stash.items) |i| {
         if (i.version == version) {
-            f(db, allocator, i) catch {
+            migrate_table(db, allocator, i) catch {
                 exit(1);
+            };
+            add_to_scripts(allocator, db, i) catch {
+                print("WARN: can not write to the scirpts while migrating\n", .{});
             };
         }
     }
@@ -120,17 +118,49 @@ pub fn add_to_scripts(allocator: mem.Allocator, db: sql.sqlite3, s: *Statements)
     try sql.finalize(db, stmt);
 }
 
-pub fn get_scripts() !void {
+pub fn get_scripts(allocator: mem.Allocator) !std.ArrayList(*Statements) {
     const db = try sql.init("data.db");
     defer sql.deinit(db) catch {
         exit(1);
     };
     const stmt = try sql.prepare(db, "select * from migration_scripts;");
+    var stash = std.ArrayList(*Statements).init(allocator);
     while (sql.raw_step(stmt) != sql.DONE) {
         const version = sql.column_int(0, stmt);
         const init = try sql.column_text(1, stmt);
-        const deinit = try sql.column_text(2, stmt);
-        print("INFO: version: {}, init: {s}, deinit: {s}\n", .{ version, init, deinit });
+        const distruct = try sql.column_text(2, stmt);
+        const init_span: [:0]const u8 = mem.span(init.ptr);
+        const distruct_span: [:0]const u8 = mem.span(distruct.ptr);
+        var statement = try Statements.init(1024, allocator, @intCast(version));
+        mem.copyForwards(u8, statement.create, init_span);
+        mem.copyForwards(u8, statement.distruct, distruct_span);
+        statement.create_l = init_span.len;
+        statement.distruct_l = distruct_span.len;
+        try stash.append(statement);
+        print("INFO: version: {d}, init: {s} distruct: {s}\n", .{ version, statement.create, statement.distruct });
     }
     try sql.finalize(db, stmt);
+    return stash;
+}
+
+pub fn drop_scripts(allocator: mem.Allocator) !void {
+    const db = try sql.init("data.db");
+    defer sql.deinit(db) catch {
+        exit(1);
+    };
+    print("INFO: trying to clear the db from previous version\n", .{});
+    const scripts = try get_scripts(allocator);
+    defer {
+        for (scripts.items) |i| {
+            i.deinit();
+        }
+        scripts.deinit();
+    }
+    for (scripts.items) |stmt| {
+        print("INFO: trying to drop table: {s}\n", .{stmt.distruct});
+        try drop_table(db, allocator, stmt);
+    }
+
+    print("DEBUG: trying to erase script stash\n", .{});
+    try sql.exec(db, "delete from migration_scripts;");
 }
