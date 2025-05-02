@@ -22,6 +22,6 @@ $ zekrom drop_to 2
 ```
 
 ## Future plans
-- support more databases
-- docker image 
-- more in [todo](./TODO.md)
+* support more databases
+* docker image 
+* more in [todo](./TODO.md)
