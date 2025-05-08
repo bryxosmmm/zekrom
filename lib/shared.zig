@@ -12,8 +12,33 @@ pub const Command = enum {
     migrate,
     show_d,
     drop_to,
+    drop,
+    redo,
     migrate_to,
     unknown,
+};
+
+pub const IndexRecord = struct {
+    const Self = @This();
+    version: ?usize,
+    cmd: []u8,
+    allocator: mem.Allocator,
+
+    pub fn init(allocator: mem.Allocator, v: usize, cmd: [*c]const u8) !Self {
+        var version: ?usize = null;
+        if (v > 0) {
+            version = v;
+        }
+        return .{ .version = version, .cmd = try allocator.dupe(u8, mem.span(cmd)), .allocator = allocator };
+    }
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.cmd);
+    }
+
+    pub fn command(self: *Self) Command {
+        print("{s}", .{self.cmd});
+        return std.meta.stringToEnum(Command, self.cmd) orelse .unknown;
+    }
 };
 
 pub const Statements = struct {

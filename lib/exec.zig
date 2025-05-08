@@ -95,7 +95,7 @@ pub fn setup_index() !void {
         exit(1);
     };
 
-    try sql.exec(db, "create table if not exists migration_index(migration_id int not null);");
+    try sql.exec(db, "create table if not exists migration_index(command text not null, version int);");
     try sql.exec(db, "create table if not exists migration_scripts(id int not null, init text not null, deinit text not null);");
 }
 
@@ -107,11 +107,11 @@ pub fn cleanup_scripts(db: sql.sqlite3) void {
 
 pub fn add_to_scripts(allocator: mem.Allocator, db: sql.sqlite3, s: *Statements) !void {
     const stmt = try sql.prepare(db, "insert into migration_scripts(id, init, deinit) values($1, $2, $3)");
-    try sql.bind_int(db, stmt, 1, @intCast(s.version));
     const init_t = try sql.Text.init(allocator, s.create, s.create_l);
     defer init_t.deinit();
     const deinit_t = try sql.Text.init(allocator, s.distruct, s.distruct_l);
     defer deinit_t.deinit();
+    try sql.bind_int(db, stmt, 1, @intCast(s.version));
     try sql.bind_text(db, 2, stmt, init_t, sql.TRANSIENT);
     try sql.bind_text(db, 3, stmt, deinit_t, sql.TRANSIENT);
     try sql.step(db, stmt);
@@ -127,6 +127,7 @@ pub fn get_scripts(allocator: mem.Allocator) !std.ArrayList(*Statements) {
     var stash = std.ArrayList(*Statements).init(allocator);
     while (sql.raw_step(stmt) != sql.DONE) {
         const version = sql.column_int(0, stmt);
+        // WARN: What the hell is this?
         const init = try sql.column_text(1, stmt);
         const distruct = try sql.column_text(2, stmt);
         const init_span: [:0]const u8 = mem.span(init.ptr);
@@ -163,4 +164,73 @@ pub fn drop_scripts(allocator: mem.Allocator) !void {
 
     print("DEBUG: trying to erase script stash\n", .{});
     try sql.exec(db, "delete from migration_scripts;");
+}
+
+pub fn drop_by_one(allocator: mem.Allocator) !usize {
+    const db = try sql.init("data.db");
+    defer sql.deinit(db) catch {
+        exit(1);
+    };
+    print("INFO: trying to clear the db from previous version\n", .{});
+    const scripts = try get_scripts(allocator);
+    defer {
+        for (scripts.items) |i| {
+            i.deinit();
+        }
+        scripts.deinit();
+    }
+    if (scripts.items.len != 0) {
+        const version = scripts.items[0].version;
+        if (version <= 1) {
+            print("ERROR: failed to get new version bcs the old version is too low: {}\n", .{version});
+            exit(1);
+        }
+        for (scripts.items) |stmt| {
+            print("INFO: trying to drop table: {s}\n", .{stmt.distruct});
+            try drop_table(db, allocator, stmt);
+        }
+        print("DEBUG: trying to erase script stash\n", .{});
+        try sql.exec(db, "delete from migration_scripts;");
+        return version - 1;
+    } else {
+        print("INFO: there is no to drop in the db", .{});
+    }
+    return 1;
+}
+
+pub fn write_to_index(allocator: mem.Allocator, comptime cmd: []const u8, version: ?usize) !void {
+    const db = try sql.init("data.db");
+    defer sql.deinit(db) catch {
+        exit(1);
+    };
+
+    const cmd_str = try allocator.dupe(u8, cmd);
+    defer allocator.free(cmd_str);
+
+    const stmt = try sql.prepare(db, "insert into migration_index(command, version) values ($1, $2)");
+    const command = try sql.Text.init(allocator, cmd_str, cmd_str.len);
+    defer command.deinit();
+
+    try sql.bind_text(db, 1, stmt, command, sql.TRANSIENT);
+    try sql.bind_int(db, stmt, 2, @intCast(version orelse 0));
+    try sql.step(db, stmt);
+    try sql.finalize(db, stmt);
+}
+
+pub fn get_index(allocator: mem.Allocator) !shared.IndexRecord {
+    const db = try sql.init("data.db");
+    defer sql.deinit(db) catch {
+        exit(1);
+    };
+
+    const stmt = try sql.prepare(db, "select * from migration_index;");
+    defer sql.finalize(db, stmt) catch {
+        exit(1);
+    };
+    if (sql.raw_step(stmt) != sql.DONE) {
+        const text = try sql.column_text(0, stmt);
+        const version = sql.column_int(1, stmt);
+        return shared.IndexRecord.init(allocator, @intCast(version), text.ptr);
+    }
+    return error.Empty;
 }

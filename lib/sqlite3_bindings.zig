@@ -21,7 +21,6 @@ pub const Text = struct {
 
     pub fn init(allocator: std.mem.Allocator, c: []u8, length: usize) !Self {
         const sql_str = try std.fmt.allocPrintZ(allocator, "{s}", .{c[0..length]});
-        // defer allocator.free(sql_str);
         return Text{ .content_ptr = sql_str, .length = @intCast(length), .allocator = allocator };
     }
 
@@ -79,7 +78,6 @@ pub fn bind_text(db: sqlite3, comptime pos: c_uint, stmt: sql_stmt, text: Text, 
     };
 }
 
-// TODO: what is the name of args in header
 pub fn bind_int(db: sqlite3, stmt: sql_stmt, comptime pos: c_int, v: c_int) !void {
     const rc = sql.sqlite3_bind_int(stmt, pos, v);
     proc_error("ERROR: failed to bind int: {s}\n", db, rc) catch {
